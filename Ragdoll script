@@ -1,0 +1,173 @@
+-- Ragdoll System Test
+-- StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+
+local ragdolled = false
+local character
+local humanoid
+
+------------------------------------------------
+-- UI
+------------------------------------------------
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "RagdollUI"
+gui.ResetOnSpawn = false
+gui.Parent = player.PlayerGui
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.fromOffset(220,100)
+frame.Position = UDim2.new(0.5,-110,0.8,0)
+frame.BackgroundColor3 = Color3.fromRGB(25,25,35)
+frame.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0,15)
+corner.Parent = frame
+
+local stroke = Instance.new("UIStroke")
+stroke.Thickness = 2
+stroke.Color = Color3.fromRGB(120,80,255)
+stroke.Parent = frame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1,0,0,30)
+title.BackgroundTransparency = 1
+title.Text = "RAGDOLL TEST"
+title.Font = Enum.Font.GothamBold
+title.TextColor3 = Color3.new(1,1,1)
+title.TextSize = 18
+title.Parent = frame
+
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(.8,0,0,35)
+button.Position = UDim2.new(.1,0,0.5,0)
+button.Text = "Enable Ragdoll"
+button.Font = Enum.Font.GothamBold
+button.TextSize = 14
+button.TextColor3 = Color3.new(1,1,1)
+button.BackgroundColor3 = Color3.fromRGB(90,60,200)
+button.Parent = frame
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0,10)
+btnCorner.Parent = button
+
+
+------------------------------------------------
+-- Ragdoll
+------------------------------------------------
+
+local savedMotors = {}
+
+local function createRagdoll()
+	if not character then return end
+
+	for _,motor in ipairs(character:GetDescendants()) do
+		if motor:IsA("Motor6D") then
+			
+			local socket = Instance.new("BallSocketConstraint")
+			local a0 = Instance.new("Attachment")
+			local a1 = Instance.new("Attachment")
+
+			a0.CFrame = motor.C0
+			a1.CFrame = motor.C1
+
+			a0.Parent = motor.Part0
+			a1.Parent = motor.Part1
+
+			socket.Attachment0 = a0
+			socket.Attachment1 = a1
+			socket.LimitsEnabled = true
+			socket.UpperAngle = 45
+			socket.Parent = motor.Parent
+
+			table.insert(savedMotors,{
+				Motor = motor,
+				Socket = socket,
+				A0 = a0,
+				A1 = a1
+			})
+
+			motor.Enabled = false
+		end
+	end
+
+	humanoid.PlatformStand = true
+end
+
+
+local function removeRagdoll()
+
+	for _,data in ipairs(savedMotors) do
+		
+		if data.Motor then
+			data.Motor.Enabled = true
+		end
+
+		if data.Socket then
+			data.Socket:Destroy()
+		end
+
+		if data.A0 then
+			data.A0:Destroy()
+		end
+
+		if data.A1 then
+			data.A1:Destroy()
+		end
+	end
+
+	table.clear(savedMotors)
+
+	humanoid.PlatformStand = false
+end
+
+
+local function toggle()
+	ragdolled = not ragdolled
+
+	if ragdolled then
+		button.Text = "Disable Ragdoll"
+		createRagdoll()
+	else
+		button.Text = "Enable Ragdoll"
+		removeRagdoll()
+	end
+end
+
+
+------------------------------------------------
+-- Controls
+------------------------------------------------
+
+button.MouseButton1Click:Connect(toggle)
+
+UIS.InputBegan:Connect(function(input,gp)
+	if gp then return end
+	
+	if input.KeyCode == Enum.KeyCode.R then
+		toggle()
+	end
+end)
+
+
+------------------------------------------------
+-- Character
+------------------------------------------------
+
+local function setup(char)
+	character = char
+	humanoid = char:WaitForChild("Humanoid")
+end
+
+player.CharacterAdded:Connect(setup)
+
+if player.Character then
+	setup(player.Character)
+end
