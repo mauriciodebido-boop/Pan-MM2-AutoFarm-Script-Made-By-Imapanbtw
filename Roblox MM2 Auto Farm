@@ -1,1 +1,629 @@
+-- =======================================================================
+-- PRO-FARM ULTIMATE EDITION | PREMIUM GAMEPASS HUD v9
+-- Architecture: Humanized Wander Matrix & Target Lock Engine
+-- Language: English
+-- =======================================================================
 
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local PathfindingService = game:GetService("PathfindingService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+
+-- ==========================================
+-- 1. PERSISTENT SYSTEM STATE & CONFIG
+-- ==========================================
+local Config = {
+    WalkSpeed = 20, 
+    SearchRadius = 300,
+    ReturnToHome = true,
+    IgnoreFullBag = false
+}
+
+local UI_THEME = {
+    MainBackground = Color3.fromRGB(35, 36, 40),
+    Sidebar        = Color3.fromRGB(28, 29, 32),
+    Highlight      = Color3.fromRGB(240, 240, 245),
+    MutedText      = Color3.fromRGB(150, 155, 165),
+    AccentActive   = Color3.fromRGB(0, 230, 115),
+    AccentInactive = Color3.fromRGB(255, 65, 85),
+    TrackColor     = Color3.fromRGB(50, 53, 65)
+}
+
+local Memory = {
+    IsFarming = false,
+    CurrentStatus = "IDLE",
+    HomeWaypoint = nil,
+    OctreeModule = nil,
+    OctreeInstance = nil,
+    TouchedCoins = {},
+    SavedUIPosition = UDim2.new(0.5, -250, 0.5, -160),
+    IsMinimized = false,
+    CurrentTargetCoin = nil,
+    WanderSeed = Random.new()
+}
+
+-- ==========================================
+-- 2. UTILITY FUNCTIONS
+-- ==========================================
+local function loadOctree()
+    if not Memory.OctreeModule then
+        local success, result = pcall(function()
+            return loadstring(game:HttpGet("https://raw.githubusercontent.com/Sleitnick/rbxts-octo-tree/main/src/init.lua", true))()
+        end)
+        if success then Memory.OctreeModule = result else warn("Failed to load Octree Engine.") end
+    end
+    return Memory.OctreeModule
+end
+
+local function updateStatusText(text)
+    Memory.CurrentStatus = text
+    local gui = player.PlayerGui:FindFirstChild("ProFarm_PremiumHUD")
+    if gui then
+        local statusLabel = gui:FindFirstChild("StatusLabel", true)
+        if statusLabel then statusLabel.Text = "Status: " .. text end
+    end
+end
+
+-- ==========================================
+-- 3. INTERFACE ARCHITECTURE
+-- ==========================================
+local function createUI()
+    local playerGui = player:WaitForChild("PlayerGui")
+    local oldGui = playerGui:FindFirstChild("ProFarm_PremiumHUD")
+    if oldGui then return end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "ProFarm_PremiumHUD"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = playerGui
+
+    local mainContainer = Instance.new("Frame")
+    mainContainer.Name = "MainContainer"
+    mainContainer.Size = Memory.IsMinimized and UDim2.new(0, 500, 0, 40) or UDim2.new(0, 500, 0, 320)
+    mainContainer.Position = Memory.SavedUIPosition
+    mainContainer.BackgroundColor3 = UI_THEME.MainBackground
+    mainContainer.BorderSizePixel = 0
+    mainContainer.ClipsDescendants = true
+    mainContainer.Parent = screenGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = mainContainer
+
+    local topBar = Instance.new("Frame")
+    topBar.Size = UDim2.new(1, 0, 0, 40)
+    topBar.BackgroundColor3 = UI_THEME.Sidebar
+    topBar.BorderSizePixel = 0
+    topBar.Parent = mainContainer
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(0, 240, 1, 0)
+    title.Position = UDim2.new(0, 15, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "SYSTEM // CONTROL PANEL v9"
+    title.TextColor3 = UI_THEME.Highlight
+    title.Font = Enum.Font.RobotoMono
+    title.TextSize = 12
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = topBar
+
+    local minimizeBtn = Instance.new("TextButton")
+    minimizeBtn.Size = UDim2.new(0, 40, 1, 0)
+    minimizeBtn.Position = UDim2.new(1, -40, 0, 0)
+    minimizeBtn.BackgroundTransparency = 1
+    minimizeBtn.Text = Memory.IsMinimized and "+" or "—"
+    minimizeBtn.TextColor3 = UI_THEME.MutedText
+    minimizeBtn.Font = Enum.Font.RobotoMono
+    minimizeBtn.TextSize = 14
+    minimizeBtn.Parent = topBar
+
+    local dragging, dragInput, dragStart, startPos
+    topBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = mainContainer.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    topBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            local newPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            mainContainer.Position = newPos
+            Memory.SavedUIPosition = newPos
+        end
+    end)
+
+    minimizeBtn.MouseButton1Click:Connect(function()
+        Memory.IsMinimized = not Memory.IsMinimized
+        local targetSize = Memory.IsMinimized and UDim2.new(0, 500, 0, 40) or UDim2.new(0, 500, 0, 320)
+        TweenService:Create(mainContainer, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = targetSize}):Play()
+        minimizeBtn.Text = Memory.IsMinimized and "+" or "—"
+    end)
+
+    local wrapper = Instance.new("Frame")
+    wrapper.Size = UDim2.new(1, 0, 1, -40)
+    wrapper.Position = UDim2.new(0, 0, 0, 40)
+    wrapper.BackgroundTransparency = 1
+    wrapper.Parent = mainContainer
+
+    local sidebar = Instance.new("Frame")
+    sidebar.Size = UDim2.new(0, 140, 1, 0)
+    sidebar.BackgroundColor3 = UI_THEME.Sidebar
+    sidebar.BorderSizePixel = 0
+    sidebar.Parent = wrapper
+
+    local dashboardFrame = Instance.new("Frame")
+    dashboardFrame.Size = UDim2.new(1, -140, 1, 0)
+    dashboardFrame.Position = UDim2.new(0, 140, 0, 0)
+    dashboardFrame.BackgroundTransparency = 1
+    dashboardFrame.Parent = wrapper
+
+    local settingsFrame = Instance.new("Frame")
+    settingsFrame.Size = UDim2.new(1, -140, 1, 0)
+    settingsFrame.Position = UDim2.new(0, 140, 0, 0)
+    settingsFrame.BackgroundTransparency = 1
+    settingsFrame.Visible = false
+    settingsFrame.Parent = wrapper
+
+    local function createTabBtn(text, posY, targetFrame)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 35)
+        btn.Position = UDim2.new(0, 0, 0, posY)
+        btn.BackgroundTransparency = 1
+        btn.Text = "   " .. text:upper()
+        btn.TextColor3 = UI_THEME.MutedText
+        btn.Font = Enum.Font.RobotoMono
+        btn.TextSize = 11
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.Parent = sidebar
+
+        btn.MouseButton1Click:Connect(function()
+            for _, child in pairs(sidebar:GetChildren()) do
+                if child:IsA("TextButton") and child.Name ~= "DestroyBtn" then child.TextColor3 = UI_THEME.MutedText end
+            end
+            btn.TextColor3 = UI_THEME.Highlight
+            dashboardFrame.Visible = (targetFrame == dashboardFrame)
+            settingsFrame.Visible = (targetFrame == settingsFrame)
+        end)
+        return btn
+    end
+
+    local tabDash = createTabBtn("Dashboard", 20, dashboardFrame)
+    local tabSet = createTabBtn("Settings", 55, settingsFrame)
+    tabDash.TextColor3 = UI_THEME.Highlight
+
+    local destroyBtn = Instance.new("TextButton")
+    destroyBtn.Name = "DestroyBtn"
+    destroyBtn.Size = UDim2.new(1, 0, 0, 35)
+    destroyBtn.Position = UDim2.new(0, 0, 1, -45)
+    destroyBtn.BackgroundTransparency = 1
+    destroyBtn.Text = "   [DESTROY]"
+    destroyBtn.TextColor3 = UI_THEME.AccentInactive
+    destroyBtn.Font = Enum.Font.RobotoMono
+    destroyBtn.TextSize = 11
+    destroyBtn.TextXAlignment = Enum.TextXAlignment.Left
+    destroyBtn.Parent = sidebar
+
+    destroyBtn.MouseButton1Click:Connect(function()
+        _G.StopFarm()
+        screenGui:Destroy()
+        _G.StartFarm = nil
+        _G.StopFarm = nil
+        Memory.OctreeInstance = nil
+        table.clear(Memory.TouchedCoins)
+    end)
+
+    -- DASHBOARD
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
+    statusLabel.Size = UDim2.new(1, -40, 0, 30)
+    statusLabel.Position = UDim2.new(0, 20, 0, 20)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "Status: IDLE"
+    statusLabel.TextColor3 = UI_THEME.MutedText
+    statusLabel.Font = Enum.Font.RobotoMono
+    statusLabel.TextSize = 11
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.Parent = dashboardFrame
+
+    local toggleFarmBtn = Instance.new("TextButton")
+    toggleFarmBtn.Name = "ToggleFarmBtn"
+    toggleFarmBtn.Size = UDim2.new(1, -40, 0, 42)
+    toggleFarmBtn.Position = UDim2.new(0, 20, 0, 60)
+    toggleFarmBtn.BackgroundColor3 = Memory.IsFarming and UI_THEME.AccentActive or UI_THEME.TrackColor
+    toggleFarmBtn.Text = Memory.IsFarming and "TERMINATE SYSTEM" or "INITIALIZE AUTO-FARM"
+    toggleFarmBtn.TextColor3 = UI_THEME.Highlight
+    toggleFarmBtn.Font = Enum.Font.RobotoMono
+    toggleFarmBtn.TextSize = 12
+    toggleFarmBtn.BorderSizePixel = 0
+    toggleFarmBtn.Parent = dashboardFrame
+
+    toggleFarmBtn.MouseButton1Click:Connect(function()
+        if Memory.IsFarming then
+            _G.StopFarm()
+            toggleFarmBtn.BackgroundColor3 = UI_THEME.TrackColor
+            toggleFarmBtn.Text = "INITIALIZE AUTO-FARM"
+        else
+            _G.StartFarm()
+            toggleFarmBtn.BackgroundColor3 = UI_THEME.AccentActive
+            toggleFarmBtn.Text = "TERMINATE SYSTEM"
+        end
+    end)
+
+    local function createSlider(parent, name, min, max, default, posY, callback)
+        local container = Instance.new("Frame")
+        container.Size = UDim2.new(1, -40, 0, 40)
+        container.Position = UDim2.new(0, 20, 0, posY)
+        container.BackgroundTransparency = 1
+        container.Parent = parent
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.7, 0, 0, 15)
+        label.BackgroundTransparency = 1
+        label.Text = name:upper()
+        label.TextColor3 = UI_THEME.MutedText
+        label.Font = Enum.Font.RobotoMono
+        label.TextSize = 11
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = container
+
+        local valLabel = Instance.new("TextLabel")
+        valLabel.Size = UDim2.new(0.3, 0, 0, 15)
+        valLabel.Position = UDim2.new(0.7, 0, 0, 0)
+        valLabel.BackgroundTransparency = 1
+        valLabel.Text = tostring(default)
+        valLabel.TextColor3 = UI_THEME.Highlight
+        valLabel.Font = Enum.Font.RobotoMono
+        valLabel.TextSize = 11
+        valLabel.TextXAlignment = Enum.TextXAlignment.Right
+        valLabel.Parent = container
+
+        local track = Instance.new("TextButton")
+        track.Size = UDim2.new(1, 0, 0, 4)
+        track.Position = UDim2.new(0, 0, 0, 24)
+        track.BackgroundColor3 = UI_THEME.TrackColor
+        track.BorderSizePixel = 0
+        track.Text = ""
+        track.AutoButtonColor = false
+        track.Parent = container
+
+        local fill = Instance.new("Frame")
+        local percent = (default - min) / (max - min)
+        fill.Size = UDim2.new(percent, 0, 1, 0)
+        fill.BackgroundColor3 = UI_THEME.AccentActive
+        fill.BorderSizePixel = 0
+        fill.Parent = track
+
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.new(0, 4, 0, 12)
+        knob.Position = UDim2.new(percent, -2, 0.5, -6)
+        knob.BackgroundColor3 = UI_THEME.Highlight
+        knob.BorderSizePixel = 0
+        knob.Parent = track
+
+        local dragging = false
+        track.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                local pct = math.clamp((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+                knob.Position = UDim2.new(pct, -2, 0.5, -6)
+                fill.Size = UDim2.new(pct, 0, 1, 0)
+                local val = math.floor(min + (pct * (max - min)))
+                valLabel.Text = tostring(val)
+                callback(val)
+            end
+        end)
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+        end)
+    end
+
+    local function createToggle(parent, name, default, posY, callback)
+        local container = Instance.new("Frame")
+        container.Size = UDim2.new(1, -40, 0, 20)
+        container.Position = UDim2.new(0, 20, 0, posY)
+        container.BackgroundTransparency = 1
+        container.Parent = parent
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.8, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Text = name:upper()
+        label.TextColor3 = UI_THEME.MutedText
+        label.Font = Enum.Font.RobotoMono
+        label.TextSize = 11
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = container
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 36, 0, 14)
+        btn.Position = UDim2.new(1, -36, 0.5, -7)
+        btn.BackgroundColor3 = default and UI_THEME.AccentActive or UI_THEME.TrackColor
+        btn.Text = ""
+        btn.BorderSizePixel = 0
+        btn.Parent = container
+
+        local isOn = default
+        btn.MouseButton1Click:Connect(function()
+            isOn = not isOn
+            TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = isOn and UI_THEME.AccentActive or UI_THEME.TrackColor}):Play()
+            callback(isOn)
+        end)
+    end
+
+    createSlider(settingsFrame, "Walk Speed Execution", 16, 100, Config.WalkSpeed, 15, function(v) Config.WalkSpeed = v end)
+    createSlider(settingsFrame, "Search Range Grid", 50, 500, Config.SearchRadius, 65, function(v) Config.SearchRadius = v end)
+    createToggle(settingsFrame, "Return To Start Frame", Config.ReturnToHome, 125, function(v) Config.ReturnToHome = v end)
+    createToggle(settingsFrame, "Bypass Inventory Checks", Config.IgnoreFullBag, 155, function(v) Config.IgnoreFullBag = v end)
+end
+
+-- ==========================================
+-- 4. GROUND-UP REWRITTEN NAVIGATION ENGINE
+-- ==========================================
+local function physicallyWalkTo(targetPosition, isWandering)
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp or humanoid.Health <= 0 then return false end
+
+    -- Lower the speed slightly during wanders to make it look casual and natural
+    humanoid.WalkSpeed = isWandering and (Config.WalkSpeed * 0.75) or Config.WalkSpeed
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = {character, workspace:FindFirstChild("CoinContainer", true)}
+
+    local currentDistance = (targetPosition - hrp.Position).Magnitude
+    local directionVector = (targetPosition - hrp.Position).Unit
+    local initialRaycast = workspace:Raycast(hrp.Position, directionVector * currentDistance, rayParams)
+
+    if not initialRaycast then
+        humanoid:MoveTo(targetPosition)
+        local trackingTimeout = tick() + (isWandering and 4.0 or 2.0)
+        local velocityStuckSeconds = 0
+        
+        while Memory.IsFarming and humanoid.Health > 0 and (hrp.Position - targetPosition).Magnitude > 3.5 do
+            if tick() > trackingTimeout then break end
+            
+            local floorRay = workspace:Raycast(hrp.Position - Vector3.new(0, 1.5, 0), hrp.CFrame.LookVector * 4, rayParams)
+            if floorRay then humanoid.Jump = true end
+
+            if hrp.AssemblyLinearVelocity.Magnitude < 2 then
+                velocityStuckSeconds = velocityStuckSeconds + 0.05
+                humanoid.Jump = true
+                if velocityStuckSeconds > 1.0 then return false end
+            else
+                velocityStuckSeconds = 0
+            end
+            task.wait(0.05)
+        end
+        return true
+    end
+
+    local dynamicPath = PathfindingService:CreatePath({
+        AgentRadius = 2.5,
+        AgentHeight = 5.0,
+        AgentCanJump = true
+    })
+
+    local calculationSuccess, _ = pcall(function()
+        dynamicPath:ComputeAsync(hrp.Position, targetPosition)
+    end)
+
+    if calculationSuccess and dynamicPath.Status == Enum.PathStatus.Success then
+        -- Skip the enthusiastic lightbulb jump if we are just casual wandering
+        if not isWandering then
+            humanoid.Jump = true 
+            task.wait(0.1)
+        end
+
+        local structuralNodes = dynamicPath:GetWaypoints()
+        local nodeCount = #structuralNodes
+        local dynamicPathStartTime = tick()
+
+        for index, node in ipairs(structuralNodes) do
+            if not Memory.IsFarming or humanoid.Health <= 0 then break end
+
+            if node.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
+
+            if node.Position.Y > hrp.Position.Y + 0.4 then
+                humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
+                humanoid.Jump = true
+            end
+
+            humanoid:MoveTo(node.Position)
+            
+            local executionTimeout = tick() + 1.2
+            local distanceGoal = (index == nodeCount) and 3.0 or 4.5
+            local physicalStuckTimeCounter = 0
+
+            while Memory.IsFarming and humanoid.Health > 0 and (hrp.Position - node.Position).Magnitude > distanceGoal do
+                if tick() > executionTimeout then break end
+                
+                local collisionScan = workspace:Raycast(hrp.Position, hrp.CFrame.LookVector * 5.0, rayParams)
+                if collisionScan then humanoid.Jump = true end
+
+                if hrp.AssemblyLinearVelocity.Magnitude < 3 then
+                    physicalStuckTimeCounter = physicalStuckTimeCounter + 0.03
+                    humanoid.Jump = true
+                    if physicalStuckTimeCounter > 1.2 or (tick() - dynamicPathStartTime) > 8.0 then return false end
+                    task.wait(0.03)
+                else
+                    physicalStuckTimeCounter = 0
+                end
+                task.wait()
+            end
+        end
+        return true
+    end
+    return false
+end
+
+-- ==========================================
+-- 5. RUNTIME CONTROLLER LOOP
+-- ==========================================
+_G.StopFarm = function()
+    Memory.IsFarming = false
+    Memory.CurrentTargetCoin = nil
+    updateStatusText("IDLE")
+    
+    local char = player.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid:MoveTo(char.PrimaryPart.Position)
+        humanoid.WalkSpeed = 16 
+    end
+
+    if Config.ReturnToHome and Memory.HomeWaypoint and char and humanoid and humanoid.Health > 0 then
+        updateStatusText("RETURNING HOME...")
+        char:PivotTo(Memory.HomeWaypoint)
+        updateStatusText("IDLE")
+    end
+end
+
+_G.StartFarm = function()
+    if Memory.IsFarming then return end
+    Memory.IsFarming = true
+    
+    local character = player.Character or player.CharacterAdded:Wait()
+    Memory.HomeWaypoint = character:GetPivot()
+    
+    local Octree = loadOctree()
+    if not Octree then return end
+
+    Memory.OctreeInstance = Octree.new()
+    local mainGui = player.PlayerGui:WaitForChild("MainGUI", 5)
+
+    task.spawn(function()
+        while Memory.IsFarming do
+            local currentCharacter = player.Character
+            local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
+            
+            if not currentCharacter or not currentHumanoid or currentHumanoid.Health <= 0 then
+                updateStatusText("WAITING FOR RESPAWN...")
+                task.wait(1)
+                continue
+            end
+
+            local isBagFull = false
+            if not Config.IgnoreFullBag and mainGui and mainGui:FindFirstChild("Game") then
+                local bagIcon = mainGui.Game:FindFirstChild("CoinBags")
+                if bagIcon and bagIcon.Container.SnowToken.FullBagIcon.Visible then
+                    isBagFull = true
+                end
+            end
+
+            if isBagFull then
+                updateStatusText("BAG INVENTORY FULL")
+                task.wait(1.5)
+                continue
+            end
+
+            local map = nil
+            for _, v in workspace:GetDescendants() do
+                if v:IsA("Model") and v.Name == "Base" then map = v.Parent; break end
+            end
+            
+            local container = map and map:FindFirstChild("CoinContainer")
+            if not container then
+                updateStatusText("SCANNING FOR DATA...")
+                task.wait(1)
+                continue
+            end
+
+            Memory.OctreeInstance:ClearAllNodes()
+            local totalActiveCoinsOnMap = 0
+            for _, item in pairs(container:GetDescendants()) do
+                if item:IsA("TouchTransmitter") and item.Parent and not Memory.TouchedCoins[item.Parent] then
+                    Memory.OctreeInstance:CreateNode(item.Parent.Position, item.Parent)
+                    totalActiveCoinsOnMap = totalActiveCoinsOnMap + 1
+                end
+            end
+
+            local hrp = currentCharacter:FindFirstChild("HumanoidRootPart")
+            if not hrp then task.wait(0.5); continue end
+
+            -- CASE A: EXECUTING TARGET PATH LOCK ON AN ACTIVE COIN
+            if Memory.CurrentTargetCoin and Memory.CurrentTargetCoin.Parent and not Memory.TouchedCoins[Memory.CurrentTargetCoin] then
+                updateStatusText("ACQUIRING COIN NODE")
+                local pathCompleted = physicallyWalkTo(Memory.CurrentTargetCoin.Position, false)
+                if not pathCompleted then
+                    Memory.TouchedCoins[Memory.CurrentTargetCoin] = true
+                end
+                Memory.CurrentTargetCoin = nil
+                task.wait(0.01)
+
+            -- CASE B: NO TARGET LOCKED, ATTEMPTING TO ACQUIRE NEAREST COIN Part
+            elseif totalActiveCoinsOnMap > 0 then
+                Memory.CurrentTargetCoin = nil
+                local searchResults = Memory.OctreeInstance:GetNearest(hrp.Position, Config.SearchRadius, 5)
+                
+                if #searchResults > 0 then
+                    for _, result in ipairs(searchResults) do
+                        if result.Object and not Memory.TouchedCoins[result.Object] then
+                            Memory.CurrentTargetCoin = result.Object
+                            break
+                        end
+                    end
+                end
+                
+                if not Memory.CurrentTargetCoin then
+                    updateStatusText("SCANNING COORDINATES...")
+                    task.wait(0.2)
+                end
+
+            -- CASE C: NO COINS EXIST ON MAP -> TRIGGER HUMAN WANDER ENGINE
+            else
+                updateStatusText("WANDERING (LOOKING FOR COINS)")
+                
+                -- Pick a casual random direction offset from current position (between 30 to 75 studs away)
+                local randomAngle = Memory.WanderSeed:NextNumber(0, math.pi * 2)
+                local randomDistance = Memory.WanderSeed:NextNumber(30, 75)
+                local wanderOffset = Vector3.new(math.cos(randomAngle) * randomDistance, 0, math.sin(randomAngle) * randomDistance)
+                local targetWanderPosition = hrp.Position + wanderOffset
+                
+                -- Walk towards the wander node using path mechanics
+                physicallyWalkTo(targetWanderPosition, true)
+                
+                -- Human factor: 40% chance to pause for a second at the destination to mimic checking angles
+                if Memory.WanderSeed:NextNumber(0, 1) > 0.6 then
+                    updateStatusText("WANDERING (IDLING)")
+                    local stopTime = Memory.WanderSeed:NextNumber(1.0, 2.5)
+                    task.wait(stopTime)
+                else
+                    task.wait(0.1)
+                end
+            end
+        end
+    end)
+end
+
+-- ==========================================
+-- 6. LIFECYCLE MANAGEMENT
+-- ==========================================
+player.CharacterAdded:Connect(function(newCharacter)
+    if Memory.IsFarming then
+        updateStatusText("RESPAWN RE-HOOK ACTIVE")
+        task.wait(1.5)
+        
+        local humanoid = newCharacter:WaitForChild("Humanoid", 5)
+        if humanoid then humanoid.WalkSpeed = Config.WalkSpeed end
+        
+        Memory.IsFarming = false 
+        Memory.CurrentTargetCoin = nil
+        _G.StartFarm()
+    end
+end)
+
+createUI()
