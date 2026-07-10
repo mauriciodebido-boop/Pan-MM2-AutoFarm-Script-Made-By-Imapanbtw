@@ -34,7 +34,7 @@ I'm always working on new things, so check back every now and then for updates!
 
 ## 👤 About Me
 
-* **GitHub:** PAN
+* **GitHub:** @mauriciodebido-boop (PanScripts)
 * **Roblox:** **Imapanbtw**
 * **TikTok:** **@pannnn..__**
 
