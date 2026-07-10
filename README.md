@@ -1,17 +1,68 @@
-# 👋 Hi, I'm PAN!
+# 👋 Welcome!
 
-I make scripts for **Roblox**, and this repository is where I share some of my best work.
+# I'm **PAN** 👾
 
-Feel free to use any of the scripts! To copy one, just:
+I create **Roblox scripts** and upload them here for everyone to use. This repository is a collection of my projects, experiments, and some of the scripts I'm most proud of.
+
+Whether you're learning, testing, or just looking for something useful, I hope you find what you need here!
+
+---
+
+## 📥 How to Use a Script
+
+Getting a script is easy:
 
 1. Open the script you want.
-2. Click **Raw** in the top-right corner.
-3. Copy the code and you're ready to go!
+2. Click the **Raw** button in the top-right corner.
+3. Copy the code.
+4. Paste it wherever you need it.
 
-I hope you find these scripts useful!
+That's it! 🎉
 
-## ❤️ Support Me
+---
 
-If you'd like to support me, consider following me on **TikTok**!
+## 📂 What You'll Find Here
 
-I'm also planning to improve this README over time, so expect it to get a lot better. Thanks for checking out my repository!
+* ⚡ Roblox utility scripts
+* 🎮 Game-specific scripts
+* 🛠️ Helpful tools
+* 🚀 New projects in the future
+
+I'm always working on new things, so check back every now and then for updates!
+
+---
+
+## 👤 About Me
+
+* **GitHub:** PAN
+* **Roblox:** **Imapanbtw**
+* **TikTok:** **@pannnn..__**
+
+I enjoy making scripts, learning new things, and improving my projects whenever I can.
+
+---
+
+## ⭐ Support
+
+If you like my work, you can support me by:
+
+* ⭐ Starring this repository.
+* 🍴 Forking it if you want to build on it.
+* 📢 Sharing it with your friends.
+* 🎥 Following me on TikTok: **@pannnn..__**
+
+Every bit of support motivates me to keep creating and sharing more scripts!
+
+---
+
+## ⚠️ Disclaimer
+
+These scripts are provided for educational and personal use. Please respect the rules of the games you're using them in, and remember that you're responsible for how you use them.
+
+---
+
+# Thanks for visiting! ❤️
+
+I appreciate everyone who checks out my projects. Have fun, and enjoy the scripts!
+
+**— PAN**
