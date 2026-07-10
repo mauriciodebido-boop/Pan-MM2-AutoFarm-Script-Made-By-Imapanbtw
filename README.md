@@ -1,0 +1,1 @@
+i am PAN! i make scripts for Roblox! and this is all my best scripts! Feel free to use! If you want to use them is simple! just click on the one you want then click in Raw in the top right corner and then Tada! your script will be there to copy and use!
